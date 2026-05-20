@@ -8,7 +8,7 @@ The main security goal is:
 
 **a user must only see data for the facilities they are allowed to access**
 
-For local installation, database seeding, and API testing steps, see [SETUP.md](/Users/danishrasheed/projects/totale-backend/SETUP.md:1).
+For local installation, database seeding, and API testing steps, see [SETUP.md](SETUP.md).
 
 ---
 

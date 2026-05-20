@@ -1,6 +1,8 @@
-# TotalE Backend Setup
+# TotalE Setup
 
-This file covers local installation, database setup, seeded users, and end-to-end API testing.
+This file covers backend installation, database setup, seeded users, and end-to-end API testing.
+
+For frontend setup see [totale-client/SETUP.md](totale-client/SETUP.md).
 
 ## Prerequisites
 
@@ -41,28 +43,27 @@ This avoids TypeORM trying to auto-change the schema on startup.
 
 ## Seeded Users
 
-All seeded users currently use:
+All seeded users use password `password123`.
 
-```text
-password123
-```
+| Email | Scope | Features |
+| --- | --- | --- |
+| `admin@totale.com` | All facilities | All features + **canManagePermissions** (admin) |
+| `region-west@totale.com` | West Region (all children) | Analytics + Survey |
+| `area-north@totale.com` | North Area branch | Analytics + Pulse + Survey |
+| `district@totale.com` | Downtown District branch | Analytics + Pulse + Survey + Export |
+| `campus@totale.com` | Main Campus Health only | Analytics + Pulse |
+| `region-east@totale.com` | East Medical Center only | Analytics + Survey + Export |
 
-Available users:
-- `admin@totale.com`
-- `region-west@totale.com`
-- `area-north@totale.com`
-- `district@totale.com`
-- `campus@totale.com`
-- `region-east@totale.com`
+> Only `admin@totale.com` has `canManagePermissions` and can access the Admin panel.
 
 ## Expected Access By User
 
-- `admin@totale.com` can see all seeded facilities
-- `region-west@totale.com` can see the West branch
-- `area-north@totale.com` can see the North Area branch
-- `district@totale.com` can see the Downtown District branch
-- `campus@totale.com` can only see Main Campus Health
-- `region-east@totale.com` can only see East Medical Center
+- `admin@totale.com` sees all facilities across all orgs
+- `region-west@totale.com` sees facilities under West Region hierarchy
+- `area-north@totale.com` sees facilities under North Area
+- `district@totale.com` sees facilities under Downtown District
+- `campus@totale.com` sees only Main Campus Health
+- `region-east@totale.com` sees only East Medical Center
 
 ## End-To-End Testing
 
