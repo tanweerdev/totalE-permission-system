@@ -1,28 +1,29 @@
 import { ObjectLiteral, SelectQueryBuilder } from 'typeorm';
-import { FacilityContext } from '../common/interfaces/facility-context.interface';
 export class FacilityScopedBuilder<T extends ObjectLiteral> {
   private readonly qb: SelectQueryBuilder<T>;
   private readonly facilityColumn: string;
+  private readonly authorizedFacilityIds: number[];
 
   constructor(
     qb: SelectQueryBuilder<T>,
-    private readonly context: FacilityContext,
+    authorizedFacilityIds: number[],
     facilityColumn = 'entity.facilityId',
   ) {
     this.qb = qb;
     this.facilityColumn = facilityColumn;
+    this.authorizedFacilityIds = authorizedFacilityIds;
     this.applyAuthorizedScope(facilityColumn);
   }
 
   private applyAuthorizedScope(facilityColumn: string): void {
-    if (this.context.isEmpty()) {
+    if (!this.authorizedFacilityIds.length) {
       this.qb.andWhere('false');
       return;
     }
 
     this.qb.andWhere(
       `${facilityColumn} IN (:...__authorizedFacilityIds)`,
-      { __authorizedFacilityIds: this.context.toArray() },
+      { __authorizedFacilityIds: this.authorizedFacilityIds },
     );
   }
 
@@ -31,7 +32,8 @@ export class FacilityScopedBuilder<T extends ObjectLiteral> {
       return this;
     }
 
-    const allowedIds = this.context.intersect(requestedFacilityIds);
+    const authorized = new Set(this.authorizedFacilityIds);
+    const allowedIds = requestedFacilityIds.filter(id => authorized.has(id));
 
     if (!allowedIds.length) {
       this.qb.andWhere('false');

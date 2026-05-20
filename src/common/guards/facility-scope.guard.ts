@@ -24,7 +24,7 @@ export class FacilityScopeGuard implements CanActivate {
 
     try {
       request[FACILITY_CONTEXT_KEY] =
-        await this.facilityScopeService.computeAuthorizedFacilities(user.id);
+        await this.facilityScopeService.computeAccessContext(user.id);
     } catch (err) {
       this.logger.error(`Failed to compute facility scope for user ${user.id}`, err);
       throw new InternalServerErrorException('Could not determine access scope');

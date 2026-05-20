@@ -9,17 +9,17 @@ import {
 } from 'typeorm';
 import { Facility } from '../../facility/entities/facility.entity';
 
-@Entity('pulse_responses')
-export class PulseResponse {
+@Entity('pulses')
+export class Pulse {
   @PrimaryGeneratedColumn()
   id: number;
 
   @Index()
-  @Column()
+  @Column({ name: 'facility_id' })
   facilityId: number;
 
   @ManyToOne(() => Facility)
-  @JoinColumn({ name: 'facilityId' })
+  @JoinColumn({ name: 'facility_id' })
   facility: Facility;
 
   @Column({ type: 'int' })
@@ -29,6 +29,6 @@ export class PulseResponse {
   category: string;
 
   @Index()
-  @CreateDateColumn()
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }

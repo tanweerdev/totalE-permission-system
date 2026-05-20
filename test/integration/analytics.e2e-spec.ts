@@ -132,14 +132,14 @@ async function seedTestData(ds: DataSource): Promise<void> {
       (${TEST_USER_NO_PERMS}, 'noperms@test.com', 'x', true)
     ON CONFLICT DO NOTHING;
 
-    INSERT INTO org_nodes (id, name, level, parent_id, path)
+    INSERT INTO organizations (id, name, level, parent_id, path, is_active)
     VALUES
-      (1, 'Root', 0, NULL, '1'),
-      (2, 'Region A', 1, 1, '1.2'),
-      (3, 'Region B', 1, 1, '1.3')
+      (1, 'Root', 0, NULL, '1', true),
+      (2, 'Region A', 1, 1, '1.2', true),
+      (3, 'Region B', 1, 1, '1.3', true)
     ON CONFLICT DO NOTHING;
 
-    INSERT INTO facilities (id, name, code, org_node_id, is_active)
+    INSERT INTO facilities (id, name, code, organization_id, is_active)
     VALUES
       (101, 'Facility A1', 'A1', 2, true),
       (102, 'Facility A2', 'A2', 2, true),
@@ -148,9 +148,18 @@ async function seedTestData(ds: DataSource): Promise<void> {
       (202, 'Facility B2', 'B2', 3, true)
     ON CONFLICT DO NOTHING;
 
-    INSERT INTO user_permissions (user_id, org_node_id, org_node_level, can_view_analytics, can_view_pulse, is_active)
+    INSERT INTO user_permissions (
+      user_id,
+      organization_id,
+      can_view_analytics,
+      can_view_pulse,
+      can_view_survey,
+      can_export_analytics,
+      can_manage_permissions,
+      is_active
+    )
     VALUES
-      (${TEST_USER_REGION_A}, 2, 1, true, true, true)
+      (${TEST_USER_REGION_A}, 2, true, true, true, true, false, true)
     ON CONFLICT DO NOTHING;
   `);
 }
@@ -158,9 +167,10 @@ async function seedTestData(ds: DataSource): Promise<void> {
 async function cleanTestData(ds: DataSource): Promise<void> {
   await ds.query(`
     DELETE FROM user_permissions WHERE user_id IN (${TEST_USER_REGION_A}, ${TEST_USER_NO_PERMS});
-    DELETE FROM pulse_responses WHERE facility_id IN (101,102,103,201,202);
+    DELETE FROM pulses WHERE facility_id IN (101,102,103,201,202);
+    DELETE FROM surveys WHERE facility_id IN (101,102,103,201,202);
     DELETE FROM facilities WHERE id IN (101,102,103,201,202);
-    DELETE FROM org_nodes WHERE id IN (1,2,3);
+    DELETE FROM organizations WHERE id IN (1,2,3);
     DELETE FROM users WHERE id IN (${TEST_USER_REGION_A}, ${TEST_USER_NO_PERMS});
   `);
 }

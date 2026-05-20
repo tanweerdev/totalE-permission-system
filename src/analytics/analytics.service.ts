@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { PulseResponse } from './entities/pulse-response.entity';
-import { SurveyResponse } from './entities/survey-response.entity';
+import { Pulse } from './entities/pulse-response.entity';
+import { Survey } from './entities/survey-response.entity';
 import { FacilityContext } from '../common/interfaces/facility-context.interface';
 import { FacilityScopedBuilder } from '../query/facility-scoped.builder';
 import { AnalyticsQueryDto } from './dto/analytics-query.dto';
@@ -25,13 +25,25 @@ export interface SurveyAnalyticRow {
   period: string;
 }
 
+export interface ExportRow {
+  id: number;
+  facilityId: number;
+  facilityName: string;
+  dataType: 'pulse' | 'survey';
+  category?: string;
+  score?: number;
+  surveyType?: string;
+  answers?: Record<string, unknown>;
+  createdAt: Date;
+}
+
 @Injectable()
 export class AnalyticsService {
   constructor(
-    @InjectRepository(PulseResponse)
-    private readonly pulseRepo: Repository<PulseResponse>,
-    @InjectRepository(SurveyResponse)
-    private readonly surveyRepo: Repository<SurveyResponse>,
+    @InjectRepository(Pulse)
+    private readonly pulseRepo: Repository<Pulse>,
+    @InjectRepository(Survey)
+    private readonly surveyRepo: Repository<Survey>,
   ) {}
 
   async getPulseAnalytics(
@@ -39,26 +51,27 @@ export class AnalyticsService {
     query: AnalyticsQueryDto,
   ): Promise<PulseAnalyticRow[]> {
     const dateTrunc = this.dateTruncExpr('pulse', query.granularity ?? 'day');
+    const authorizedFacilityIds = context.toArray('canViewPulse');
 
     const qb = this.pulseRepo
       .createQueryBuilder('pulse')
       .innerJoin('pulse.facility', 'facility')
       .select([
-        'pulse.facilityId AS "facilityId"',
+        'pulse.facility_id AS "facilityId"',
         'facility.name AS "facilityName"',
         'pulse.category AS category',
         `AVG(pulse.score) AS "avgScore"`,
         `COUNT(pulse.id) AS "responseCount"`,
         `${dateTrunc} AS period`,
       ])
-      .where('pulse.createdAt BETWEEN :from AND :to', {
+      .where('pulse.created_at BETWEEN :from AND :to', {
         from: query.dateFrom,
         to: query.dateTo,
       })
-      .groupBy('pulse.facilityId, facility.name, pulse.category, period')
+      .groupBy('pulse.facility_id, facility.name, pulse.category, period')
       .orderBy('period', 'DESC');
 
-    return new FacilityScopedBuilder(qb, context, 'pulse.facilityId')
+    return new FacilityScopedBuilder(qb, authorizedFacilityIds, 'pulse.facility_id')
       .withClientFacilityFilter(query.facilityIds)
       .getQuery()
       .getRawMany<PulseAnalyticRow>();
@@ -69,25 +82,26 @@ export class AnalyticsService {
     query: AnalyticsQueryDto,
   ): Promise<SurveyAnalyticRow[]> {
     const dateTrunc = this.dateTruncExpr('survey', query.granularity ?? 'day');
+    const authorizedFacilityIds = context.toArray('canViewSurvey');
 
     const qb = this.surveyRepo
       .createQueryBuilder('survey')
       .innerJoin('survey.facility', 'facility')
       .select([
-        'survey.facilityId AS "facilityId"',
+        'survey.facility_id AS "facilityId"',
         'facility.name AS "facilityName"',
-        'survey.surveyType AS "surveyType"',
+        'survey.survey_type AS "surveyType"',
         `COUNT(survey.id) AS "responseCount"`,
         `${dateTrunc} AS period`,
       ])
-      .where('survey.createdAt BETWEEN :from AND :to', {
+      .where('survey.created_at BETWEEN :from AND :to', {
         from: query.dateFrom,
         to: query.dateTo,
       })
-      .groupBy('survey.facilityId, facility.name, survey.surveyType, period')
+      .groupBy('survey.facility_id, facility.name, survey.survey_type, period')
       .orderBy('period', 'DESC');
 
-    return new FacilityScopedBuilder(qb, context, 'survey.facilityId')
+    return new FacilityScopedBuilder(qb, authorizedFacilityIds, 'survey.facility_id')
       .withClientFacilityFilter(query.facilityIds)
       .getQuery()
       .getRawMany<SurveyAnalyticRow>();
@@ -96,59 +110,84 @@ export class AnalyticsService {
   async exportData(
     context: FacilityContext,
     dto: AnalyticsExportDto,
-  ): Promise<Record<string, unknown>[]> {
-    if (context.isEmpty()) {
+  ): Promise<ExportRow[]> {
+    const authorizedFacilityIds = context.toArray('canExportAnalytics');
+    if (!authorizedFacilityIds.length) {
       return [];
     }
 
+    const rows: ExportRow[] = [];
+
     if (dto.dataType === 'pulse' || dto.dataType === 'combined') {
-      const qb = this.pulseRepo
-        .createQueryBuilder('pulse')
-        .innerJoin('pulse.facility', 'facility')
-        .select([
-          'pulse.id AS id',
-          'facility.name AS "facilityName"',
-          'pulse.category AS category',
-          'pulse.score AS score',
-          'pulse.createdAt AS "createdAt"',
-        ])
-        .where('pulse.createdAt BETWEEN :from AND :to', {
-          from: dto.dateFrom,
-          to: dto.dateTo,
-        });
-
-      return new FacilityScopedBuilder(qb, context, 'pulse.facilityId')
-        .withClientFacilityFilter(dto.facilityIds)
-        .getQuery()
-        .getRawMany();
+      rows.push(
+        ...(await this.buildPulseExport(dto, authorizedFacilityIds)),
+      );
     }
 
-    if (dto.dataType === 'survey') {
-      const qb = this.surveyRepo
-        .createQueryBuilder('survey')
-        .innerJoin('survey.facility', 'facility')
-        .select([
-          'survey.id AS id',
-          'facility.name AS "facilityName"',
-          'survey.surveyType AS "surveyType"',
-          'survey.answers AS answers',
-          'survey.createdAt AS "createdAt"',
-        ])
-        .where('survey.createdAt BETWEEN :from AND :to', {
-          from: dto.dateFrom,
-          to: dto.dateTo,
-        });
-
-      return new FacilityScopedBuilder(qb, context, 'survey.facilityId')
-        .withClientFacilityFilter(dto.facilityIds)
-        .getQuery()
-        .getRawMany();
+    if (dto.dataType === 'survey' || dto.dataType === 'combined') {
+      rows.push(
+        ...(await this.buildSurveyExport(dto, authorizedFacilityIds)),
+      );
     }
 
-    return [];
+    return rows.sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
   }
 
   private dateTruncExpr(alias: string, granularity: 'day' | 'week' | 'month'): string {
-    return `DATE_TRUNC('${granularity}', ${alias}."createdAt")`;
+    return `DATE_TRUNC('${granularity}', ${alias}.created_at)`;
+  }
+
+  private async buildPulseExport(
+    dto: AnalyticsExportDto,
+    authorizedFacilityIds: number[],
+  ): Promise<ExportRow[]> {
+    const qb = this.pulseRepo
+      .createQueryBuilder('pulse')
+      .innerJoin('pulse.facility', 'facility')
+      .select([
+        'pulse.id AS id',
+        'pulse.facility_id AS "facilityId"',
+        'facility.name AS "facilityName"',
+        `'pulse' AS "dataType"`,
+        'pulse.category AS category',
+        'pulse.score AS score',
+        'pulse.created_at AS "createdAt"',
+      ])
+      .where('pulse.created_at BETWEEN :from AND :to', {
+        from: dto.dateFrom,
+        to: dto.dateTo,
+      });
+
+    return new FacilityScopedBuilder(qb, authorizedFacilityIds, 'pulse.facility_id')
+      .withClientFacilityFilter(dto.facilityIds)
+      .getQuery()
+      .getRawMany<ExportRow>();
+  }
+
+  private async buildSurveyExport(
+    dto: AnalyticsExportDto,
+    authorizedFacilityIds: number[],
+  ): Promise<ExportRow[]> {
+    const qb = this.surveyRepo
+      .createQueryBuilder('survey')
+      .innerJoin('survey.facility', 'facility')
+      .select([
+        'survey.id AS id',
+        'survey.facility_id AS "facilityId"',
+        'facility.name AS "facilityName"',
+        `'survey' AS "dataType"`,
+        'survey.survey_type AS "surveyType"',
+        'survey.answers AS answers',
+        'survey.created_at AS "createdAt"',
+      ])
+      .where('survey.created_at BETWEEN :from AND :to', {
+        from: dto.dateFrom,
+        to: dto.dateTo,
+      });
+
+    return new FacilityScopedBuilder(qb, authorizedFacilityIds, 'survey.facility_id')
+      .withClientFacilityFilter(dto.facilityIds)
+      .getQuery()
+      .getRawMany<ExportRow>();
   }
 }

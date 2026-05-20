@@ -18,6 +18,7 @@ const mockCacheManager = () => ({
   get: jest.fn(),
   set: jest.fn(),
   del: jest.fn(),
+  reset: jest.fn(),
 });
 
 describe('FacilityScopeService', () => {
@@ -42,14 +43,29 @@ describe('FacilityScopeService', () => {
     cache = module.get(CACHE_MANAGER);
   });
 
-  describe('computeAuthorizedFacilities', () => {
+  describe('computeAccessContext', () => {
     it('returns cached context when cache hit', async () => {
-      cache.get.mockResolvedValue([1, 2, 3]);
+      cache.get.mockResolvedValue({
+        userId: 42,
+        featureScopes: {
+          canViewAnalytics: [1, 2, 3],
+          canViewPulse: [1, 2, 3],
+          canViewSurvey: [],
+          canExportAnalytics: [],
+        },
+        featureFlags: {
+          canViewAnalytics: true,
+          canViewPulse: true,
+          canViewSurvey: false,
+          canExportAnalytics: false,
+          canManagePermissions: false,
+        },
+      });
 
-      const result = await service.computeAuthorizedFacilities(42);
+      const result = await service.computeAccessContext(42);
 
       expect(result).toBeInstanceOf(FacilityContext);
-      expect(result.toArray()).toEqual(expect.arrayContaining([1, 2, 3]));
+      expect(result.toArray('canViewAnalytics')).toEqual(expect.arrayContaining([1, 2, 3]));
       expect(permissionRepo.find).not.toHaveBeenCalled();
     });
 
@@ -57,46 +73,73 @@ describe('FacilityScopeService', () => {
       cache.get.mockResolvedValue(null);
       permissionRepo.find.mockResolvedValue([]);
 
-      const result = await service.computeAuthorizedFacilities(99);
+      const result = await service.computeAccessContext(99);
 
-      expect(result.isEmpty()).toBe(true);
+      expect(result.isEmptyFor('canViewAnalytics')).toBe(true);
     });
 
-    it('unions facilities from multiple permission grants (additive model)', async () => {
+    it('unions organization and direct facility grants per feature', async () => {
       cache.get.mockResolvedValue(null);
       permissionRepo.find.mockResolvedValue([
-        { orgNodeId: 10 },
-        { orgNodeId: 20 },
+        { organizationId: 10, facilityId: null, canViewAnalytics: true, canViewPulse: true },
+        { organizationId: null, facilityId: 99, canViewAnalytics: true, canViewPulse: false },
       ]);
-      facilityRepo.query.mockResolvedValue([{ id: 1 }, { id: 2 }, { id: 3 }]);
+      facilityRepo.query
+        .mockResolvedValueOnce([
+          { rootId: 10, facilityId: 1 },
+          { rootId: 10, facilityId: 2 },
+        ])
+        .mockResolvedValueOnce([{ id: 99 }]);
 
-      const result = await service.computeAuthorizedFacilities(7);
+      const result = await service.computeAccessContext(7);
 
-      expect(result.toArray()).toEqual(expect.arrayContaining([1, 2, 3]));
+      expect(result.toArray('canViewAnalytics')).toEqual(expect.arrayContaining([1, 2, 99]));
+      expect(result.toArray('canViewPulse')).toEqual(expect.arrayContaining([1, 2]));
     });
 
-    it('deduplicates facilities when permission nodes overlap in the hierarchy', async () => {
+    it('deduplicates overlapping organization results', async () => {
       cache.get.mockResolvedValue(null);
       permissionRepo.find.mockResolvedValue([
-        { orgNodeId: 5 },
-        { orgNodeId: 10 },
+        { organizationId: 5, facilityId: null, canViewAnalytics: true },
+        { organizationId: 10, facilityId: null, canViewAnalytics: true },
       ]);
-      facilityRepo.query.mockResolvedValue([{ id: 1 }, { id: 2 }, { id: 1 }]);
+      facilityRepo.query
+        .mockResolvedValueOnce([
+          { rootId: 5, facilityId: 1 },
+          { rootId: 10, facilityId: 1 },
+          { rootId: 10, facilityId: 2 },
+        ])
+        .mockResolvedValueOnce([]);
 
-      const result = await service.computeAuthorizedFacilities(7);
+      const result = await service.computeAccessContext(7);
 
-      expect(result.toArray()).toHaveLength(2);
-      expect(result.contains(1)).toBe(true);
+      expect(result.toArray('canViewAnalytics')).toHaveLength(2);
     });
 
     it('caches the result after the first DB query', async () => {
       cache.get.mockResolvedValue(null);
-      permissionRepo.find.mockResolvedValue([{ orgNodeId: 1 }]);
-      facilityRepo.query.mockResolvedValue([{ id: 5 }]);
+      permissionRepo.find.mockResolvedValue([
+        { organizationId: 1, facilityId: null, canViewAnalytics: true, canManagePermissions: true },
+      ]);
+      facilityRepo.query
+        .mockResolvedValueOnce([{ rootId: 1, facilityId: 5 }])
+        .mockResolvedValueOnce([]);
 
-      await service.computeAuthorizedFacilities(42);
+      await service.computeAccessContext(42);
 
-      expect(cache.set).toHaveBeenCalledWith('facility-scope:user:42', [5], expect.any(Number));
+      expect(cache.set).toHaveBeenCalledWith(
+        'facility-scope:user:42',
+        expect.objectContaining({
+          userId: 42,
+          featureScopes: expect.objectContaining({
+            canViewAnalytics: [5],
+          }),
+          featureFlags: expect.objectContaining({
+            canManagePermissions: true,
+          }),
+        }),
+        expect.any(Number),
+      );
     });
   });
 
@@ -104,6 +147,13 @@ describe('FacilityScopeService', () => {
     it('deletes the users cache key', async () => {
       await service.invalidateCache(42);
       expect(cache.del).toHaveBeenCalledWith('facility-scope:user:42');
+    });
+  });
+
+  describe('invalidateAllCaches', () => {
+    it('resets the cache store when available', async () => {
+      await service.invalidateAllCaches();
+      expect(cache.reset).toHaveBeenCalled();
     });
   });
 });

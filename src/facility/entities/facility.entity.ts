@@ -5,8 +5,10 @@ import {
   ManyToOne,
   JoinColumn,
   Index,
+  CreateDateColumn,
+  UpdateDateColumn,
 } from 'typeorm';
-import { OrgNode } from '../../org/entities/org-node.entity';
+import { Organization } from '../../org/entities/organization.entity';
 
 @Entity('facilities')
 export class Facility {
@@ -20,13 +22,19 @@ export class Facility {
   code: string;
 
   @Index()
-  @Column()
-  orgNodeId: number;
+  @Column({ name: 'organization_id' })
+  organizationId: number;
 
-  @ManyToOne(() => OrgNode, { eager: false })
-  @JoinColumn({ name: 'orgNodeId' })
-  orgNode: OrgNode;
+  @ManyToOne(() => Organization, { eager: false })
+  @JoinColumn({ name: 'organization_id' })
+  organization: Organization;
 
-  @Column({ default: true })
+  @Column({ name: 'is_active', default: true })
   isActive: boolean;
+
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  updatedAt: Date;
 }

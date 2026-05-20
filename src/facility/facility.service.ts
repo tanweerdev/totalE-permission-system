@@ -8,6 +8,8 @@ export interface FacilityOption {
   id: number;
   name: string;
   code: string;
+  organizationId: number;
+  organizationName: string;
 }
 
 @Injectable()
@@ -17,16 +19,25 @@ export class FacilityService {
     private readonly facilityRepo: Repository<Facility>,
   ) {}
   async getAuthorizedDropdown(context: FacilityContext): Promise<FacilityOption[]> {
-    if (context.isEmpty()) {
+    const ids = context.toArray('canViewAnalytics');
+    if (!ids.length) {
       return [];
     }
 
     return this.facilityRepo
       .createQueryBuilder('f')
-      .select(['f.id AS id', 'f.name AS name', 'f.code AS code'])
-      .where('f.id IN (:...ids)', { ids: context.toArray() })
-      .andWhere('f.isActive = true')
-      .orderBy('f.name', 'ASC')
+      .innerJoin('f.organization', 'org')
+      .select([
+        'f.id AS id',
+        'f.name AS name',
+        'f.code AS code',
+        'org.id AS "organizationId"',
+        'org.name AS "organizationName"',
+      ])
+      .where('f.id IN (:...ids)', { ids })
+      .andWhere('f.is_active = true')
+      .orderBy('org.name', 'ASC')
+      .addOrderBy('f.name', 'ASC')
       .getRawMany<FacilityOption>();
   }
 }
